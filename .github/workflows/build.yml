@@ -1,0 +1,79 @@
+// KeySystemHook.mm
+// Integrated with http://tqtdev.2bd.net/get_key.php
+
+#include <iostream>
+#include <string>
+#include <thread>
+#include <future>
+#include <cstring>
+#include <chrono>
+#include "imgui.h"
+
+// --- Trạng thái tĩnh ---
+static char keyBuffer[128] = "";
+static bool isChecking = false;
+static std::string statusMessage = "";
+static std::future<std::string> httpFuture;
+static bool isKeyValid = false;
+static int countdownTimer = 60;
+
+// Hàm gửi HTTP GET Request (được triển khai bằng cURL hoặc NSURLSession)
+extern std::string HttpGetRequest(const std::string& url);
+
+// --- Hàm Render ImGui Key System ---
+void DrawKeySystemMenu() {
+    if (isKeyValid) {
+        // key đã đúng -> Gọi Menu Hack chính tại đây
+        // DrawMainModMenu();
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(320, 220), ImGuiCond_FirstUseEver);
+    ImGui::Begin("APIServer Key System", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+
+    ImGui::Text("Package will close after %d seconds", countdownTimer);
+    ImGui::Spacing();
+
+    ImGui::InputText("##key", keyBuffer, IM_ARRAYSIZE(keyBuffer));
+    ImGui::Spacing();
+
+    if (!isChecking) {
+        if (ImGui::Button("Submit Key", ImVec2(-1, 40))) {
+            if (strlen(keyBuffer) > 0) {
+                isChecking = true;
+                statusMessage = "Dang kiem tra key...";
+                
+                // Gửi HTTP Request bất đồng bộ
+                httpFuture = std::async(std::launch::async, []() {
+                    std::string url = "http://tqtdev.2bd.net/get_key.php?key=" + std::string(keyBuffer);
+                    return HttpGetRequest(url);
+                });
+            } else {
+                statusMessage = "Vui long nhap Key!";
+            }
+        }
+    } else {
+        ImGui::BeginDisabled();
+        ImGui::Button("Dang xac thuc...", ImVec2(-1, 40));
+        ImGui::EndDisabled();
+
+        if (httpFuture.valid() && httpFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            std::string response = httpFuture.get();
+            isChecking = false;
+
+            if (response.find("success") != std::string::npos) {
+                isKeyValid = true;
+                statusMessage = "Xac thuc thanh cong!";
+            } else {
+                statusMessage = "Key khong hop le hoac het han!";
+            }
+        }
+    }
+
+    if (!statusMessage.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(isKeyValid ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1), "%s", statusMessage.c_str());
+    }
+
+    ImGui::End();
+}
